@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pulseboard Threads Companion</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header class="brand">
+        <span class="brandMark" aria-hidden="true">P</span>
+        <span>
+          <strong>Pulseboard</strong>
+          <small>Threads Companion</small>
+        </span>
+      </header>
+
+      <section class="statusCard" aria-live="polite">
+        <span class="statusDot ready" aria-hidden="true"></span>
+        <span>
+          <strong>本機分析模式</strong>
+          <small>不會傳送目前貼文內容</small>
+        </span>
+      </section>
+
+      <div class="buttonRow">
+        <button id="openDashboard" class="primary" type="button">開啟儀表板</button>
+        <button id="openSetup" class="secondary" type="button">網站設定</button>
+      </div>
+
+      <section class="panel">
+        <div class="sectionHeading">
+          <span>
+            <strong>目前 Threads 貼文</strong>
+            <small id="tabStatus">等待讀取</small>
+          </span>
+          <button id="inspectPost" class="compact" type="button">分析</button>
+        </div>
+
+        <p id="analysisMessage" class="muted">只有按下「分析」後，插件才會暫時讀取目前貼文；若有反白文字會優先分析選取內容。</p>
+
+        <div id="analysisResult" class="analysisResult" hidden>
+          <div class="metrics" aria-label="貼文分析摘要">
+            <span><strong id="characterCount">0</strong><small>字</small></span>
+            <span><strong id="questionCount">0</strong><small>問題</small></span>
+            <span><strong id="hashtagCount">0</strong><small>標籤</small></span>
+            <span><strong id="linkCount">0</strong><small>連結</small></span>
+          </div>
+
+          <p id="postPreview" class="postPreview"></p>
+
+          <div class="tips">
+            <strong>回覆提示</strong>
+            <ul id="writingTips"></ul>
+          </div>
+
+          <label for="replyDraft">100 字內本機草稿</label>
+          <textarea id="replyDraft" rows="3"></textarea>
+          <div class="draftFooter">
+            <small><span id="draftCount">0</span>/100 字</small>
+            <button id="copyDraft" class="compact" type="button">複製草稿</button>
+          </div>
+        </div>
+      </section>
+
+      <p class="privacyNote">不保存或上傳貼文內容，不自動按讚、不自動發布，也不在背景掃描動態。</p>
+    </main>
+    <script type="module" src="popup.mjs"></script>
+  </body>
+</html>

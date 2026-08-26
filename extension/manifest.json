@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Pulseboard Threads Companion",
+  "short_name": "Pulseboard",
+  "version": "1.2.0",
+  "description": "在使用者點擊後分析目前 Threads 貼文，建立 100 字內本機草稿，並快速開啟 Pulseboard。",
+  "minimum_chrome_version": "102",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "action": {
+    "default_title": "Pulseboard Threads Companion",
+    "default_popup": "popup.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'none'"
+  },
+  "homepage_url": "https://github.com/v0re/pulseboard-threads"
+}
