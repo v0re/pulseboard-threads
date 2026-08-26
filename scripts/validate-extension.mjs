@@ -43,7 +43,7 @@ const files = await listFiles(extensionRoot);
 for (const filename of files) {
   assert(!/(^|[\\/])\.env(?:\.|$)/iu.test(filename), `${filename} is an environment file.`);
   assert(!/\.(?:pem|key|map)$/iu.test(filename), `${filename} is not allowed in the extension package.`);
-  if (!/\.(?:html|css|mjs|json|md)$/iu.test(filename)) continue;
+  assert(/\.(?:html|css|mjs|json|md)$/iu.test(filename), `${filename} has an unaudited file type.`);
   const contents = await readFile(path.join(extensionRoot, filename), "utf8");
   assert(!contents.includes("OPENAI_API_KEY"), `${filename} must not reference server secrets.`);
   assert(!/sk-[A-Za-z0-9_-]{20,}/u.test(contents), `${filename} contains a secret-shaped value.`);
@@ -51,6 +51,7 @@ for (const filename of files) {
     assert(!/\b(?:fetch|XMLHttpRequest|WebSocket)\b/u.test(contents), `${filename} must not make network requests.`);
     assert(!/sendBeacon\s*\(/u.test(contents), `${filename} must not send beacons.`);
   }
+  if (/\.css$/iu.test(filename)) assert(!/url\s*\(\s*["']?https?:|@import/iu.test(contents), `${filename} must not load remote styles.`);
 }
 
 const draft = createReplyDraft(analyzePostText("這個功能應該怎麼設計？"));

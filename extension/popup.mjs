@@ -104,8 +104,12 @@ function extractVisibleThreadsPost() {
     }))
     .filter((candidate) => candidate.text.length >= 2 && candidate.exactPostLink && !candidate.hasOtherPostLink);
 
-  const uniqueCandidates = new Map(articleCandidates.map((candidate) => [candidate.text, candidate.node]));
-  const selected = uniqueCandidates.size === 1 ? [...uniqueCandidates.values()][0] : null;
+  const deepestCandidates = articleCandidates.filter((candidate) => !articleCandidates.some(
+    (other) => other !== candidate && candidate.node.contains(other.node),
+  ));
+  const selected = deepestCandidates.length === 1 && articleCandidates.every(
+    (candidate) => candidate.node.contains(deepestCandidates[0].node) || deepestCandidates[0].node.contains(candidate.node),
+  ) ? deepestCandidates[0].node : null;
 
   const text = normalize(selected?.innerText);
   if (!text) return { error: "無法可靠定位貼文。請反白選取貼文文字，再按一次分析。" };
