@@ -2,9 +2,10 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { decryptSecret, encryptSecret } from "./crypto";
+import { runAutoReplies } from "./auto-reply";
 import {
   acquireSyncLock, finishSyncRun, getConnection, listConnections, markConnectionSynced, markMissingPostsUnavailable, releaseSyncLock,
-  pruneOldData, startSyncRun, updateConnectionToken, upsertAccountSnapshot, upsertPost, upsertPostSnapshot,
+  pruneOldData, recordAudit, startSyncRun, updateConnectionToken, upsertAccountSnapshot, upsertPost, upsertPostSnapshot,
 } from "./db";
 import { getEnv, getSyncPostLimit, optionalEnv } from "./env";
 import { getAccountInsights, getOwnPosts, getPostInsights, refreshLongLivedToken, ThreadsApiError } from "./threads";
@@ -110,6 +111,30 @@ export async function syncConnection(connectionId: string, source: SyncSource, m
     });
     if (postListComplete) await markMissingPostsUnavailable(connectionId, posts.map((post) => post.id));
     await upsertAccountSnapshot(connectionId, capturedOn, accountMetrics);
+    try {
+      const autoReply = await runAutoReplies({
+        connectionId,
+        threadsUserId: connection.threads_user_id,
+        username: connection.username,
+        grantedScopes: connection.granted_scopes,
+        accessToken,
+        signal: controller.signal,
+      });
+      apiCalls += autoReply.threadsApiCalls;
+      if (autoReply.status !== "disabled" || autoReply.published || autoReply.failed) {
+        await recordAudit(connectionId, "auto_reply_run", {
+          status: autoReply.status,
+          reason: autoReply.reason,
+          scannedPosts: autoReply.scannedPosts,
+          analyzed: autoReply.analyzed,
+          published: autoReply.published,
+          skipped: autoReply.skipped,
+          failed: autoReply.failed,
+        });
+      }
+    } catch {
+      await recordAudit(connectionId, "auto_reply_run_failed", {}).catch(() => undefined);
+    }
     await markConnectionSynced(connectionId, null);
     await finishSyncRun(runId, { status: "completed", postsSeen, apiCalls });
     return { connectionId, status: "completed", postsSeen, apiCalls };

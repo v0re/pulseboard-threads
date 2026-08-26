@@ -1,8 +1,8 @@
 # Pulseboard
 
-Pulseboard 是一套可部署到 Vercel 的唯讀 Threads 分析儀表板。它透過 Meta 官方 Threads API 讀取已授權帳號的貼文與 Insights，保存每日快照，提供趨勢、熱門貼文、篩選瀏覽、JSON 匯出及使用者主動觸發的公開搜尋。
+Pulseboard 是一套可部署到 Vercel 的 Threads 分析儀表板。它透過 Meta 官方 Threads API 讀取已授權帳號的貼文與 Insights，保存每日快照，提供趨勢、熱門貼文、篩選瀏覽、JSON 匯出、公開搜尋，以及預設關閉的 AI 自動回覆。
 
-> 非 Meta 官方產品。這個專案不會自動按讚、追蹤、回覆、重複開啟貼文或製造瀏覽量。
+> 非 Meta 或 OpenAI 官方產品。官方 API 不支援自動按讚或首頁動態掃描；本專案也不會自動追蹤、重複開啟貼文或製造瀏覽量。自動回覆必須由帳號擁有者明確啟用。
 
 ## 功能
 
@@ -14,6 +14,8 @@ Pulseboard 是一套可部署到 Vercel 的唯讀 Threads 分析儀表板。它�
 - 資料庫鎖與每日唯一鍵，防止 Cron 重複或重疊寫入。
 - 貼文全文搜尋、媒體類型篩選與成效排序。
 - 官方 `keyword_search` 公開搜尋；只在使用者送出查詢時執行。
+- 可選 AI 自動回覆：只處理啟用後、自己貼文收到的直接文字回覆；每日 3／5／10 則、去重、敏感內容跳過、完整輸出最多 100 字並標示 AI。
+- OpenAI Moderations + Responses API（`store: false`）；資料庫不保存收到的留言全文，只保留最小來源 reply ID 收據以永久去重，並在刪除連線時一併清除。
 - JSON 匯出（含帳號與貼文歷史快照）、立即中斷連線與完整資料刪除。
 - Demo 模式：缺少環境變數時仍可安全預覽介面。
 
@@ -28,7 +30,7 @@ Pulseboard 不會顯示「誰看過貼文」、獨立訪客、首頁動態或私
 - Neon Postgres（透過 Vercel Marketplace）
 - Meta Threads API `https://graph.threads.com/v1.0`
 
-資料表 migration 位於 [`migrations/001_initial.sql`](migrations/001_initial.sql)，執行器會以 transaction 與 `schema_migrations` 留存版本。每日快照以 `(post_id, captured_on)` 或 `(connection_id, captured_on)` 作為唯一鍵，因此重跑同一天同步是冪等的。
+資料表 migration 位於 [`migrations`](migrations)，執行器會以 transaction 與 `schema_migrations` 留存版本。每日快照以 `(post_id, captured_on)` 或 `(connection_id, captured_on)` 作為唯一鍵，因此重跑同一天同步是冪等的。
 
 ## 本機啟動
 
@@ -48,6 +50,9 @@ npm run dev
    - `threads_basic`
    - `threads_manage_insights`
    - `threads_keyword_search`
+   - `threads_read_replies`
+   - `threads_manage_replies`
+   - `threads_content_publish`
 3. 把正式網域的 Callback 加入 Valid OAuth Redirect URIs：
 
 ```text
@@ -70,10 +75,13 @@ THREADS_REDIRECT_URI
 THREADS_APP_ID
 THREADS_APP_SECRET
 DATABASE_URL
+OPENAI_API_KEY
 APP_ENCRYPTION_KEY
 SESSION_SECRET
 CRON_SECRET
 ```
+
+AI 自動回覆需要 OpenAI Platform API billing 已啟用；ChatGPT 訂閱不會自動轉成 API 額度。啟用開關時，伺服器會先以不含使用者資料的合成文字檢查 Moderation 與 Responses API，任一服務不可用就維持關閉。
 
 三個秘密可各自用 `openssl rand -base64 32` 產生。`APP_ENCRYPTION_KEY` 與 `SESSION_SECRET` 必須是不同的 32-byte 隨機值；網站會拒絕短密碼或重複金鑰。不要使用 `NEXT_PUBLIC_` 前綴。
 
@@ -101,6 +109,9 @@ Vercel Hobby 的 Cron 最快每日一次且執行時間可能落在指定小時�
 - Cron 使用資料庫租約鎖，快照使用唯一鍵保持冪等。
 - Cron 會在 Vercel 強制中止前主動停止、取消尚未完成的 API 請求並正常結束同步紀錄。
 - UI 只把 Threads 內容當純文字渲染，不代理抓取任意外部 URL。
+- 自動回覆總開關預設關閉；只處理啟用時間後的直接回覆，並在發布前重新檢查開關與台北日界的每日上限。
+- 收到的文字先經本機高風險規則、OpenAI Moderation、固定 strict JSON schema 與輸出再審查；任何不確定狀況不發布。
+- 每個來源 reply ID 只能建立一筆工作。發布採 at-most-once：若 Threads 回覆結果不明，不會自動重試而造成重複留言。
 
 建議正式上線前把 `THREADS_ALLOWED_USER_IDS` 設成允許的 Threads user ID，直到 Meta 審核完成。
 
@@ -111,6 +122,8 @@ npm run lint
 npm test
 npm run build
 ```
+
+GitHub Actions 會在每次 push 與 PR 自動執行 lint、測試和正式建置；Dependabot 每週檢查 npm 與 GitHub Actions 相依套件，並針對可用更新建立修復 PR。任意功能 PR 不會在未審核的情況下取得部署或 OpenAI 密鑰。
 
 ## 授權
 

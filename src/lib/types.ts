@@ -40,6 +40,20 @@ export type ThreadsPost = {
   has_replies?: boolean;
 };
 
+export type ThreadsReply = {
+  id: string;
+  text?: string;
+  username?: string;
+  permalink?: string;
+  timestamp?: string;
+  media_type?: string;
+  is_reply?: boolean;
+  is_reply_owned_by_me?: boolean;
+  root_post?: { id?: string };
+  replied_to?: { id?: string };
+  hide_status?: string;
+};
+
 export type PostViewModel = {
   id: string;
   text: string;

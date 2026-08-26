@@ -1,10 +1,19 @@
 import { getEnv } from "./env";
-import type { AccountMetrics, PostMetrics, ThreadsPost, ThreadsProfile } from "./types";
+import type { AccountMetrics, PostMetrics, ThreadsPost, ThreadsProfile, ThreadsReply } from "./types";
 
 const GRAPH_ORIGIN = "https://graph.threads.com";
 const API_BASE = `${GRAPH_ORIGIN}/v1.0`;
 const AUTH_URL = "https://threads.com/oauth/authorize";
-export const THREADS_SCOPES = ["threads_basic", "threads_manage_insights", "threads_keyword_search"] as const;
+export const THREADS_SCOPES = [
+  "threads_basic",
+  "threads_manage_insights",
+  "threads_keyword_search",
+  "threads_read_replies",
+  "threads_manage_replies",
+  "threads_content_publish",
+] as const;
+
+export const AUTO_REPLY_SCOPES = ["threads_read_replies", "threads_manage_replies", "threads_content_publish"] as const;
 
 type ApiErrorBody = { error?: { message?: string; type?: string; code?: number; error_subcode?: number } };
 
@@ -96,6 +105,27 @@ export async function refreshLongLivedToken(accessToken: string, signal?: AbortS
   const result = await fetchJson<{ access_token?: string; expires_in?: number }>(url, { signal }, 1);
   if (!result.access_token) throw new Error("Threads 憑證更新失敗");
   return { accessToken: result.access_token, expiresIn: Number(result.expires_in ?? 5_184_000) };
+}
+
+export async function getGrantedScopes(userAccessToken: string): Promise<string[]> {
+  const appTokenBody = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: getEnv("THREADS_APP_ID"),
+    client_secret: getEnv("THREADS_APP_SECRET"),
+  });
+  const appToken = await fetchJson<{ access_token?: string }>(`${GRAPH_ORIGIN}/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: appTokenBody,
+  }, 1);
+  if (!appToken.access_token) throw new Error("無法驗證 Threads 權限");
+  const result = await fetchJson<{ data?: { is_valid?: boolean; scopes?: string[] } }>(
+    authenticatedUrl("/debug_token", { input_token: userAccessToken }),
+    { headers: authHeaders(appToken.access_token) },
+    1,
+  );
+  if (result.data?.is_valid !== true || !Array.isArray(result.data.scopes)) throw new Error("Threads 權限驗證失敗");
+  return result.data.scopes.filter((scope): scope is string => typeof scope === "string");
 }
 
 export async function getProfile(accessToken: string): Promise<ThreadsProfile> {
@@ -196,4 +226,66 @@ export async function searchPublicPosts(accessToken: string, args: { query: stri
     q: args.query, search_type: args.type, search_mode: args.mode, fields, limit: 25,
   }), { headers: authHeaders(accessToken) });
   return (result.data ?? []).map(normalizePost);
+}
+
+export async function getPostReplies(accessToken: string, postId: string, maxReplies = 100, signal?: AbortSignal): Promise<{ replies: ThreadsReply[]; apiCalls: number }> {
+  const fields = "id,text,username,permalink,timestamp,media_type,has_replies,root_post,replied_to,is_reply,is_reply_owned_by_me,hide_status";
+  const replies: ThreadsReply[] = [];
+  let after: string | undefined;
+  let apiCalls = 0;
+  while (replies.length < maxReplies) {
+    const url = authenticatedUrl(`/${encodeURIComponent(postId)}/replies`, {
+      fields,
+      reverse: "true",
+      limit: Math.min(50, maxReplies - replies.length),
+      after,
+    });
+    const page = await fetchJson<{ data?: ThreadsReply[]; paging?: { cursors?: { after?: string } } }>(url, {
+      headers: authHeaders(accessToken), signal,
+    });
+    apiCalls += 1;
+    replies.push(...(page.data ?? []).map((reply) => ({
+      ...reply,
+      id: String(reply.id),
+      text: typeof reply.text === "string" ? reply.text : undefined,
+      username: typeof reply.username === "string" ? reply.username : undefined,
+    })));
+    const nextAfter = page.paging?.cursors?.after;
+    if (!nextAfter || nextAfter === after || !(page.data?.length)) break;
+    after = nextAfter;
+  }
+  return { replies: replies.slice(0, maxReplies), apiCalls };
+}
+
+export async function createReplyContainer(accessToken: string, replyToId: string, text: string, signal?: AbortSignal): Promise<string> {
+  const body = new URLSearchParams({ media_type: "TEXT", text, reply_to_id: replyToId });
+  const result = await fetchJson<{ id?: string }>(authenticatedUrl("/me/threads"), {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+    signal,
+  }, 1);
+  if (!result.id) throw new ThreadsApiError("Threads 未回傳回覆容器", 502);
+  return String(result.id);
+}
+
+export async function getContainerStatus(accessToken: string, containerId: string, signal?: AbortSignal): Promise<{ status: string; errorMessage?: string }> {
+  const result = await fetchJson<{ status?: string; error_message?: string }>(
+    authenticatedUrl(`/${encodeURIComponent(containerId)}`, { fields: "id,status,error_message" }),
+    { headers: authHeaders(accessToken), signal },
+    1,
+  );
+  return { status: String(result.status ?? "UNKNOWN").toUpperCase(), errorMessage: result.error_message };
+}
+
+export async function publishReplyContainer(accessToken: string, threadsUserId: string, containerId: string, signal?: AbortSignal): Promise<string> {
+  const body = new URLSearchParams({ creation_id: containerId });
+  const result = await fetchJson<{ id?: string }>(authenticatedUrl(`/${encodeURIComponent(threadsUserId)}/threads_publish`), {
+    method: "POST",
+    headers: { ...authHeaders(accessToken), "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+    signal,
+  }, 1);
+  if (!result.id) throw new ThreadsApiError("Threads 未回傳已發布回覆", 502);
+  return String(result.id);
 }

@@ -201,5 +201,15 @@ export async function pruneOldData(days: number): Promise<void> {
   await db().query(`DELETE FROM account_metric_snapshots WHERE captured_on < current_date-$1::integer`, [safeDays]);
   await db().query(`DELETE FROM sync_runs WHERE started_at < now()-($1 || ' days')::interval`, [safeDays]);
   await db().query(`DELETE FROM audit_events WHERE created_at < now()-($1 || ' days')::interval`, [safeDays]);
+  const automationTables = await db().query(
+    `SELECT to_regclass('public.auto_reply_jobs') IS NOT NULL AS jobs,
+      to_regclass('public.auto_reply_daily_usage') IS NOT NULL AS usage`,
+  ) as Array<{ jobs: boolean; usage: boolean }>;
+  if (automationTables[0]?.jobs) {
+    await db().query(`DELETE FROM auto_reply_jobs WHERE created_at < now()-($1 || ' days')::interval AND status NOT IN ('publishing')`, [safeDays]);
+  }
+  if (automationTables[0]?.usage) {
+    await db().query(`DELETE FROM auto_reply_daily_usage WHERE local_date < (now() AT TIME ZONE 'Asia/Taipei')::date-2`);
+  }
   await db().query(`DELETE FROM search_rate_limits WHERE bucket_start < now()-interval '2 days'`);
 }

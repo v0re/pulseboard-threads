@@ -1,6 +1,7 @@
 import "server-only";
 
 import { engagementRate, interactionTotal, percentChange, sumKnown } from "./analytics";
+import { getAutoReplyLogs, getAutoReplySettings } from "./auto-reply-db";
 import { db, getConnection, hasDatabase } from "./db";
 import { getSyncPostLimit, isAppConfigured } from "./env";
 import { getSessionConnectionId } from "./session";
@@ -244,6 +245,10 @@ export async function getExportForSession(): Promise<Record<string, unknown> | n
     ) as unknown as Promise<Array<PostRow & { post_id: string; captured_on: string | Date; captured_at: string | Date }>>,
   ]);
   const posts = postRows.map(postFromRow);
+  const automation = await Promise.all([
+    getAutoReplySettings(connectionId),
+    getAutoReplyLogs(connectionId, 50),
+  ]).then(([settings, logs]) => ({ settings, logs })).catch(() => null);
 
   return {
     account: {
@@ -254,6 +259,7 @@ export async function getExportForSession(): Promise<Record<string, unknown> | n
     },
     scope: { exportedPosts: posts.length, dailyHistoryRetentionDays: Number(process.env.DATA_RETENTION_DAYS ?? 90) },
     posts,
+    automation,
     accountHistory: accountHistoryRows.map((row) => ({
       capturedOn: iso(row.captured_on).slice(0, 10),
       capturedAt: row.captured_at ? iso(row.captured_at) : null,

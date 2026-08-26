@@ -5,7 +5,7 @@ import { recordAudit, upsertConnection } from "@/lib/db";
 import { getAllowedThreadsUserIds, getEnv, getThreadsRedirectUri } from "@/lib/env";
 import { consumeOAuthState, setSessionConnectionId } from "@/lib/session";
 import { syncConnection } from "@/lib/sync";
-import { exchangeCodeForToken, exchangeForLongLivedToken, getProfile, THREADS_SCOPES } from "@/lib/threads";
+import { exchangeCodeForToken, exchangeForLongLivedToken, getGrantedScopes, getProfile, THREADS_SCOPES } from "@/lib/threads";
 
 export const maxDuration = 300;
 
@@ -25,17 +25,17 @@ export async function GET(request: Request) {
   try {
     const short = await exchangeCodeForToken(code, getThreadsRedirectUri(request.url));
     const long = await exchangeForLongLivedToken(short.accessToken);
-    const profile = await getProfile(long.accessToken);
+    const [profile, grantedScopes] = await Promise.all([getProfile(long.accessToken), getGrantedScopes(long.accessToken)]);
     if (String(profile.id) !== String(short.userId)) throw new Error("Threads 帳號識別不一致");
     const allowed = getAllowedThreadsUserIds();
     if (allowed.size && !allowed.has(String(profile.id))) return Response.redirect(new URL("/setup?error=not_allowed", request.url));
     const sessionVersion = randomToken();
     const connectionId = await upsertConnection({
       id: randomUUID(), profile, encryptedToken: encryptSecret(long.accessToken, getEnv("APP_ENCRYPTION_KEY")),
-      tokenExpiresAt: new Date(Date.now() + long.expiresIn * 1000), scopes: [...THREADS_SCOPES], sessionVersion,
+      tokenExpiresAt: new Date(Date.now() + long.expiresIn * 1000), scopes: grantedScopes, sessionVersion,
     });
     await setSessionConnectionId(connectionId, sessionVersion);
-    await recordAudit(connectionId, "oauth_connected", { scopes: [...THREADS_SCOPES] });
+    await recordAudit(connectionId, "oauth_connected", { scopes: grantedScopes, requestedScopes: [...THREADS_SCOPES] });
     after(async () => { await syncConnection(connectionId, "oauth", 25); });
     return Response.redirect(new URL("/?connected=1", request.url));
   } catch {
